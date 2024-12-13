@@ -26,13 +26,14 @@ endfunction
 
 module sdram #(
     parameter CLOCK_SPEED_MHZ = 0,
-    parameter BURST_LENGTH = 1,  // 1, 2, 4, 8 words per read
-    parameter BURST_TYPE = 0,  // 1 for interleaved
-    parameter CAS_LATENCY = 2,  // 1, 2, or 3 cycle delays
-    parameter WRITE_BURST = 0,  // 1 to enable write bursting
+    parameter BURST_LENGTH    = 1,  // 1, 2, 4, 8 words per read
+    parameter BURST_TYPE      = 0,  // 1 for interleaved
+    parameter CAS_LATENCY     = 2,  // 1, 2, or 3 cycle delays
+    parameter WRITE_BURST     = 0,  // 1 to enable write bursting
 
     // Port config
-    parameter P0_BURST_LENGTH = BURST_LENGTH  // 1, 2, 4, 8 words per read
+    parameter P0_BURST_LENGTH = BURST_LENGTH,  // 1, 2, 4, 8 words per read
+    parameter P1_BURST_LENGTH = BURST_LENGTH
 ) (
     input wire clk,
     input wire reset,  // Used to trigger start of FSM
@@ -41,7 +42,7 @@ module sdram #(
     // Port 0
     input wire [24:0] p0_addr,
     input wire [15:0] p0_data,
-    input wire [1:0] p0_byte_en,  // Byte enable for writes
+    input wire [1:0]  p0_byte_en,  // Byte enable for writes
     output reg [P0_BURST_LENGTH * 16 - 1:0] p0_q,
 
     input wire p0_wr_req,
@@ -50,6 +51,19 @@ module sdram #(
     output wire p0_available,  // The port is able to be used
     output reg  p0_ready = 0,  // The port has finished its task. Will rise for a single cycle
 
+    // Port 1
+    input wire [24:0] p1_addr,
+    input wire [15:0] p1_data,
+    input wire [1:0]  p1_byte_en,  // Byte enable for writes
+    output reg [P1_BURST_LENGTH * 16 - 1:0] p1_q,
+
+    input wire p1_wr_req,
+    input wire p1_rd_req,
+
+    output wire p1_available,  // The port is able to be used
+    output reg  p1_ready = 0,  // The port has finished its task. Will rise for a single cycle
+
+    // SDRAM Interface
     inout  wire [15:0] SDRAM_DQ,    // Bidirectional data bus
     output reg  [12:0] SDRAM_A,     // Address bus
     output reg  [ 1:0] SDRAM_DQM,   // High/low byte mask
@@ -159,7 +173,7 @@ module sdram #(
 
   typedef struct {
     reg [9:0]  port_addr;
-    reg [15:0] port_data;
+    reg [31:0] port_data;
     reg [1:0]  port_byte_en;
   } port_selection;
 
@@ -182,6 +196,7 @@ module sdram #(
     IDLE,
     DELAY,
     WRITE,
+    WRITE2,
     READ,
     READ_OUTPUT
   } state_fsm;
@@ -212,14 +227,14 @@ module sdram #(
   assign {SDRAM_nCS, SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} = sdram_command;
 
   ////////////////////////////////////////////////////////////////////////////////////////
-  // Port specifics
+  // Port 0 specifics
 
   // Cache the signals we received, potentially while busy
-  reg p0_wr_queue = 0;
-  reg p0_rd_queue = 0;
+  reg p0_wr_queue            = 0;
+  reg p0_rd_queue            = 0;
   reg [1:0] p0_byte_en_queue = 0;
-  reg [24:0] p0_addr_queue = 0;
-  reg [15:0] p0_data_queue = 0;
+  reg [24:0] p0_addr_queue   = 0;
+  reg [15:0] p0_data_queue   = 0;
 
   wire p0_req = p0_wr_req || p0_rd_req;
   wire p0_req_queue = p0_wr_queue || p0_rd_queue;
@@ -227,7 +242,24 @@ module sdram #(
   wire [24:0] p0_addr_current = p0_req_queue ? p0_addr_queue : p0_addr;
 
   // An active new request or cached request
-  wire port_req = p0_req || p0_req_queue;
+  wire port0_req = p0_req || p0_req_queue;
+
+  // Port 1 specifics
+
+  // Cache the signals we received, potentially while busy
+  reg p1_wr_queue            = 0;
+  reg p1_rd_queue            = 0;
+  reg [1:0] p1_byte_en_queue = 0;
+  reg [24:0] p1_addr_queue   = 0;
+  reg [15:0] p1_data_queue   = 0;
+
+  wire p1_req = p1_wr_req || p1_rd_req;
+  wire p1_req_queue = p1_wr_queue || p1_rd_queue;
+  // The current p0 address that should be used for any operations on this first cycle only
+  wire [24:0] p1_addr_current = p1_req_queue ? p1_addr_queue : p1_addr;
+
+  // An active new request or cached request
+  wire port1_req = p1_req || p1_req_queue;
 
   ////////////////////////////////////////////////////////////////////////////////////////
   // Helpers
@@ -250,15 +282,21 @@ module sdram #(
   function port_selection get_active_port();
     port_selection selection;
 
-    selection.port_addr = 10'h0;
-    selection.port_data = 16'h0;
+    selection.port_addr    = 10'h0;
+    selection.port_data    = 32'h0;
     selection.port_byte_en = 2'h0;
 
     case (active_port)
       0: begin
-        selection.port_addr = p0_addr_queue[9:0];
-        selection.port_data = p0_data_queue;
+        selection.port_addr    = p0_addr_queue[9:0];
+        selection.port_data    = p0_data_queue[15:0];
         selection.port_byte_en = p0_byte_en_queue;
+      end
+
+      1: begin
+        selection.port_addr    = p1_addr_queue[9:0];
+        selection.port_data    = p1_data_queue[15:0];
+        selection.port_byte_en = p1_byte_en_queue;
       end
     endcase
 
@@ -272,7 +310,8 @@ module sdram #(
 
   assign init_complete = state != INIT;
 
-  assign p0_available = state == IDLE && ~port_req;
+  assign p0_available = state == IDLE && ~port0_req;
+  assign p1_available = state == IDLE && ~port1_req;
 
   ////////////////////////////////////////////////////////////////////////////////////////
   // Process
@@ -289,26 +328,33 @@ module sdram #(
 
       sdram_command <= COMMAND_NOP;
 
-      p0_ready <= 0;
-
+      p0_ready    <= 0;
       p0_wr_queue <= 0;
       p0_rd_queue <= 0;
-
-      dq_output <= 0;
-
-      p0_q <= 0;
+      dq_output   <= 0;
+      p0_q        <= 0;
     end else begin
       // Cache port 0 input values
       if (p0_wr_req && current_io_operation != IO_WRITE) begin
         p0_wr_queue <= 1;
 
         p0_byte_en_queue <= p0_byte_en;
-        p0_addr_queue <= p0_addr;
-        p0_data_queue <= p0_data;
+        p0_addr_queue    <= p0_addr;
+        p0_data_queue    <= p0_data;
       end else if (p0_rd_req && current_io_operation != IO_READ) begin
         p0_rd_queue   <= 1;
 
         p0_addr_queue <= p0_addr;
+      end else if (p1_wr_req && current_io_operation != IO_WRITE) begin
+        p1_wr_queue <= 1;
+
+        p1_byte_en_queue <= p1_byte_en;
+        p1_addr_queue    <= p1_addr;
+        p1_data_queue    <= p1_data;
+      end else if (p1_rd_req && current_io_operation != IO_READ) begin
+        p1_rd_queue   <= 1;
+
+        p1_addr_queue <= p1_addr;
       end
 
       // Default to NOP at all times in between commands
@@ -389,7 +435,25 @@ module sdram #(
             current_io_operation <= IO_READ;
 
             set_active_command(0, p0_addr_current);
-          end
+          end else if (p1_wr_req || p1_wr_queue) begin
+            // Port 1 write
+            state <= DELAY;
+            delay_state <= WRITE;
+
+            current_io_operation <= IO_WRITE;
+
+            // Clear queued action
+            p1_wr_queue <= 0;
+
+            set_active_command(1, p1_addr_current);
+          end else if (p1_rd_req || p1_rd_queue) begin
+            // Port 0 read
+            state <= DELAY;
+            delay_state <= READ;
+
+            current_io_operation <= IO_READ;
+
+            set_active_command(1, p1_addr_current);
         end
         DELAY: begin
           if (delay_counter > 0) begin
@@ -401,6 +465,7 @@ module sdram #(
             if (delay_state == IDLE && current_io_operation != IO_NONE) begin
               case (active_port)
                 0: p0_ready <= 1;
+                1: p1_ready <= 1;
               endcase
             end
           end
@@ -409,7 +474,12 @@ module sdram #(
           // Write to the selected row
           port_selection active_port_entries;
 
-          state <= DELAY;
+          if (active_port == 0) begin
+            state <= DELAY;
+          end else if (active_port == 1) begin
+            state <= WRITE2;
+          end
+
           // A write must wait for auto precharge (tWR) and precharge command period (tRP)
           // Takes one cycle to get back to IDLE, and another to read command
           delay_counter <= CYCLES_AFTER_WRITE_FOR_NEXT_COMMAND - 32'h2;
@@ -423,7 +493,26 @@ module sdram #(
           SDRAM_A <= {2'b0, 1'b1, active_port_entries.port_addr};
           // Enable DQ output
           dq_output <= 1;
-          sdram_data <= active_port_entries.port_data;
+          sdram_data <= active_port_entries.port_data[15:0];
+
+          // Use byte enable from port
+          SDRAM_DQM <= ~active_port_entries.port_byte_en;
+        end
+        WRITE2: begin
+          state <= DELAY;
+
+          // A write must wait for auto precharge (tWR) and precharge command period (tRP)
+          // Takes one cycle to get back to IDLE, and another to read command
+          delay_counter <= CYCLES_AFTER_WRITE_FOR_NEXT_COMMAND - 32'h2;
+
+          sdram_command <= COMMAND_WRITE;
+
+          // NOTE: Bank is still set from ACTIVE command assertion
+          // High bit enables auto precharge. I assume the top 2 bits are unused
+          SDRAM_A <= {2'b0, 1'b1, active_port_entries.port_addr + 1};
+          // Enable DQ output
+          dq_output <= 1;
+          sdram_data <= active_port_entries.port_data[31:16];
 
           // Use byte enable from port
           SDRAM_DQM <= ~active_port_entries.port_byte_en;
@@ -449,7 +538,14 @@ module sdram #(
           active_port_entries = get_active_port();
 
           // Clear queued action
-          p0_rd_queue <= 0;
+          case (active_port)
+            0: begin
+              p0_rd_queue <= 0;
+            end
+            1: begin
+              p1_rd_queue <= 0;
+            end
+          endcase
 
           sdram_command <= COMMAND_READ;
 
@@ -469,6 +565,11 @@ module sdram #(
               temp[P0_OUTPUT_WIDTH:0] = p0_q;
 
               expected_count = P0_BURST_LENGTH;
+            end
+            1: begin
+              temp[P1_OUTPUT_WIDTH:0] = p1_q;
+
+              expected_count = P1_BURST_LENGTH;
             end
           endcase
 
@@ -496,6 +597,13 @@ module sdram #(
 
               if (read_counter == expected_count) begin
                 p0_ready <= 1;
+              end
+            end
+            1: begin
+              p1_q <= temp[P1_OUTPUT_WIDTH:0];
+
+              if (read_counter == expected_count) begin
+                p1_ready <= 1;
               end
             end
           endcase
