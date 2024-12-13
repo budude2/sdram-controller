@@ -53,7 +53,7 @@ module sdram #(
 
     // Port 1
     input wire [24:0] p1_addr,
-    input wire [15:0] p1_data,
+    input wire [31:0] p1_data,
     input wire [1:0]  p1_byte_en,  // Byte enable for writes
     output reg [P1_BURST_LENGTH * 16 - 1:0] p1_q,
 
