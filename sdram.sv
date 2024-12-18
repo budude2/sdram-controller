@@ -170,6 +170,7 @@ module sdram #(
   };
 
   localparam P0_OUTPUT_WIDTH = P0_BURST_LENGTH * 16 - 1;
+  localparam P1_OUTPUT_WIDTH = P1_BURST_LENGTH * 16 - 1;
 
   typedef struct {
     reg [9:0]  port_addr;
@@ -454,6 +455,7 @@ module sdram #(
             current_io_operation <= IO_READ;
 
             set_active_command(1, p1_addr_current);
+          end
         end
         DELAY: begin
           if (delay_counter > 0) begin
