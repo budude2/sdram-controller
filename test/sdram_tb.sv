@@ -6,6 +6,8 @@ module sdram_tb;
   reg reset = 0;
 
   wire init_complete;
+
+  //===================================
   wire p0_ready;
 
   reg [24:0] p0_addr = 0;
@@ -16,6 +18,18 @@ module sdram_tb;
   reg p0_rd_req = 0;
 
   reg [1:0] p0_byte_en = 0;
+
+  //===================================
+  wire p1_ready;
+
+  reg [24:0] p1_addr = 0;
+  reg [31:0] p1_data = 0;
+  wire [127:0] p1_q;
+
+  reg p1_wr_req = 0;
+  reg p1_rd_req = 0;
+
+  reg [1:0] p1_byte_en = 0;
 
   always begin
     #10 clk <= ~clk;
@@ -64,6 +78,17 @@ module sdram_tb;
       .p0_rd_req(p0_rd_req),
 
       .p0_ready(p0_ready),
+
+      // Port 1
+      .p1_addr(p1_addr),
+      .p1_data(p1_data),
+      .p1_byte_en(p1_byte_en),
+      .p1_q(p1_q),
+
+      .p1_wr_req(p1_wr_req),
+      .p1_rd_req(p1_rd_req),
+
+      .p1_ready(p1_ready),
 
       .SDRAM_DQ(dq),
       .SDRAM_A(addr),
@@ -216,6 +241,22 @@ module sdram_tb;
     p0_rd_req = 0;
 
     @(posedge clk iff p0_ready);
+
+    #10;
+
+    p1_addr = 25'h0_32_2020;
+    p1_data = 32'h1234_5678;
+
+    p1_byte_en = 2'h3;
+    p1_wr_req = 1;
+
+    #20;
+    p1_addr = 0;
+    p1_data = 0;
+    #20;
+    p1_wr_req = 0;
+
+    @(posedge clk iff p1_ready);
 
     #10;
 

@@ -252,7 +252,7 @@ module sdram #(
   reg p1_rd_queue            = 0;
   reg [1:0] p1_byte_en_queue = 0;
   reg [24:0] p1_addr_queue   = 0;
-  reg [15:0] p1_data_queue   = 0;
+  reg [31:0] p1_data_queue   = 0;
 
   wire p1_req = p1_wr_req || p1_rd_req;
   wire p1_req_queue = p1_wr_queue || p1_rd_queue;
@@ -296,7 +296,7 @@ module sdram #(
 
       1: begin
         selection.port_addr    = p1_addr_queue[9:0];
-        selection.port_data    = p1_data_queue[15:0];
+        selection.port_data    = p1_data_queue[31:0];
         selection.port_byte_en = p1_byte_en_queue;
       end
     endcase
@@ -334,6 +334,11 @@ module sdram #(
       p0_rd_queue <= 0;
       dq_output   <= 0;
       p0_q        <= 0;
+
+      p1_ready    <= 0;
+      p1_wr_queue <= 0;
+      p1_rd_queue <= 0;
+      p1_q        <= 0;
     end else begin
       // Cache port 0 input values
       if (p0_wr_req && current_io_operation != IO_WRITE) begin
@@ -503,7 +508,7 @@ module sdram #(
         WRITE2: begin
           // Write to the selected row
           port_selection active_port_entries;
-          
+
           state <= DELAY;
 
           // A write must wait for auto precharge (tWR) and precharge command period (tRP)
@@ -516,7 +521,7 @@ module sdram #(
           // High bit enables auto precharge. I assume the top 2 bits are unused
           SDRAM_A <= {2'b0, 1'b1, active_port_entries.port_addr + 1};
           // Enable DQ output
-          dq_output <= 1;
+          dq_output  <= 1;
           sdram_data <= active_port_entries.port_data[31:16];
 
           // Use byte enable from port
