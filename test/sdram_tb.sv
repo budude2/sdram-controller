@@ -244,7 +244,7 @@ module sdram_tb;
 
     #10;
 
-    p1_addr = 25'h0_32_2020;
+    p1_addr = 25'h0_32_2030;
     p1_data = 32'h1234_5678;
 
     p1_byte_en = 2'h3;
@@ -255,6 +255,20 @@ module sdram_tb;
     p1_data = 0;
     #20;
     p1_wr_req = 0;
+
+    @(posedge clk iff p1_ready);
+
+    #10;
+
+    p1_addr = 25'h0_32_2030;
+    p1_data = 32'hFFFFFFFF;
+
+    p1_byte_en = 2'h2;
+    p1_rd_req = 1;
+
+    #20;
+    p1_addr = 0;
+    p1_rd_req = 0;
 
     @(posedge clk iff p1_ready);
 
