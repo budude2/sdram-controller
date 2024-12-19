@@ -410,6 +410,7 @@ module sdram #(
           dq_output <= 0;
 
           p0_ready <= 0;
+          p1_ready <= 0;
 
           current_io_operation <= IO_NONE;
 
@@ -521,7 +522,7 @@ module sdram #(
 
           // NOTE: Bank is still set from ACTIVE command assertion
           // High bit enables auto precharge. I assume the top 2 bits are unused
-          SDRAM_A <= {2'b0, 1'b1, active_port_entries.port_addr + 1};
+          SDRAM_A <= {2'b0, 1'b1, active_port_entries.port_addr + 1'b1};
           // Enable DQ output
           dq_output  <= 1;
           sdram_data <= active_port_entries.port_data[31:16];
