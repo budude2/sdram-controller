@@ -515,6 +515,8 @@ module sdram #(
           // Takes one cycle to get back to IDLE, and another to read command
           delay_counter <= CYCLES_AFTER_WRITE_FOR_NEXT_COMMAND - 32'h2;
 
+          active_port_entries = get_active_port();
+
           sdram_command <= COMMAND_WRITE;
 
           // NOTE: Bank is still set from ACTIVE command assertion
