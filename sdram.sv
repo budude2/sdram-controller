@@ -501,6 +501,9 @@ module sdram #(
           SDRAM_DQM <= ~active_port_entries.port_byte_en;
         end
         WRITE2: begin
+          // Write to the selected row
+          port_selection active_port_entries;
+          
           state <= DELAY;
 
           // A write must wait for auto precharge (tWR) and precharge command period (tRP)
